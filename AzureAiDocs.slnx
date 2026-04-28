@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="AzureAiDocs.Api/AzureAiDocs.Api.csproj" />
+  <Project Path="AzureAiDocs.Application/AzureAiDocs.Application.csproj" />
+  <Project Path="AzureAiDocs.Domain/AzureAiDocs.Domain.csproj" />
+  <Project Path="AzureAiDocs.Infrastructure/AzureAiDocs.Infrastructure.csproj" />
+  <Project Path="AzureAiDocs.Tests/AzureAiDocs.Tests.csproj" />
+</Solution>

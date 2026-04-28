@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Restore dependencies
+        run: dotnet restore AzureAiDocs.slnx
+
+      - name: Build
+        run: dotnet build AzureAiDocs.slnx --no-restore --configuration Release
+
+      - name: Run tests
+        run: dotnet test AzureAiDocs.slnx --no-build --configuration Release --verbosity normal
