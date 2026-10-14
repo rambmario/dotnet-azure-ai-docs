@@ -1,0 +1,36 @@
+services:
+  sql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "Your_strong_Password123"
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqldata:/var/opt/mssql
+    healthcheck:
+      test: /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "Your_strong_Password123" -C -Q "SELECT 1" || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  api:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__DefaultConnection: "Server=sql;Database=AzureAiDocs;User Id=sa;Password=Your_strong_Password123;TrustServerCertificate=True;"
+      ApiKeyAuth__ApiKey: "change-me-local-dev-key"
+      AzureOpenAI__Endpoint: "${AZURE_OPENAI_ENDPOINT}"
+      AzureOpenAI__ApiKey: "${AZURE_OPENAI_API_KEY}"
+      AzureOpenAI__DeploymentName: "${AZURE_OPENAI_DEPLOYMENT:-gpt-4o-mini}"
+      AzureStorage__ConnectionString: "${AZURE_STORAGE_CONNECTION_STRING}"
+      AzureStorage__ContainerName: "documents"
+    depends_on:
+      sql:
+        condition: service_healthy
+
+volumes:
+  sqldata:

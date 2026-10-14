@@ -15,10 +15,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup .NET 9
+      - name: Setup .NET 10
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '9.0.x'
+          dotnet-version: '10.0.x'
 
       - name: Restore dependencies
         run: dotnet restore AzureAiDocs.slnx
@@ -26,5 +26,19 @@ jobs:
       - name: Build
         run: dotnet build AzureAiDocs.slnx --no-restore --configuration Release
 
-      - name: Run tests
-        run: dotnet test AzureAiDocs.slnx --no-build --configuration Release --verbosity normal
+      - name: Run tests with coverage
+        run: >
+          dotnet test AzureAiDocs.slnx
+          --no-build
+          --configuration Release
+          --verbosity normal
+          --collect:"XPlat Code Coverage"
+          --results-directory ./coverage
+
+      - name: Upload coverage artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage
+          path: coverage/**
+          retention-days: 14

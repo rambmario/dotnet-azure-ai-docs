@@ -1,76 +1,71 @@
+using AzureAiDocs.Api.Auth;
 using AzureAiDocs.Application.DTOs;
 using AzureAiDocs.Application.Interfaces;
-using AzureAiDocs.Domain.Entities;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AzureAiDocs.Api.Controllers;
 
 [ApiController]
+[Authorize(AuthenticationSchemes = ApiKeyAuthenticationHandler.SchemeName)]
 [Route("api/[controller]")]
 public class DocumentsController : ControllerBase
 {
-    private readonly IDocumentRepository _repository;
-    private readonly IStorageService _storage;
-    private readonly IAiService _ai;
+    private readonly IDocumentService _documents;
 
-    public DocumentsController(
-        IDocumentRepository repository,
-        IStorageService storage,
-        IAiService ai)
+    public DocumentsController(IDocumentService documents)
     {
-        _repository = repository;
-        _storage = storage;
-        _ai = ai;
+        _documents = documents;
     }
 
+    /// <summary>Upload a .txt or .pdf document (max size configured in DocumentUpload).</summary>
     [HttpPost("upload")]
-    public async Task<ActionResult<UploadDocumentResponse>> Upload(IFormFile file)
+    [RequestSizeLimit(10 * 1024 * 1024)]
+    [ProducesResponseType(typeof(UploadDocumentResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<UploadDocumentResponse>> Upload(
+        IFormFile file,
+        CancellationToken cancellationToken)
     {
-        if (file == null || file.Length == 0)
+        if (file is null)
             return BadRequest("No file provided.");
 
-        using var stream = file.OpenReadStream();
-        var (blobUrl, content) = await _storage.UploadAsync(stream, file.FileName);
+        await using var stream = file.OpenReadStream();
+        var response = await _documents.UploadAsync(
+            stream,
+            file.FileName,
+            file.Length,
+            cancellationToken);
 
-        var document = new Document
-        {
-            FileName = file.FileName,
-            BlobUrl = blobUrl,
-            Content = content
-        };
-
-        var saved = await _repository.AddAsync(document);
-
-        return Ok(new UploadDocumentResponse(
-            saved.Id, saved.FileName, saved.UploadedAt));
+        return Ok(response);
     }
 
-    [HttpPost("{id}/ask")]
+    /// <summary>Ask a natural-language question grounded in the document content.</summary>
+    [HttpPost("{id:guid}/ask")]
+    [ProducesResponseType(typeof(AskDocumentResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<AskDocumentResponse>> Ask(
-        Guid id, [FromBody] AskDocumentRequest request)
+        Guid id,
+        [FromBody] AskDocumentRequest request,
+        CancellationToken cancellationToken)
     {
-        var document = await _repository.GetByIdAsync(id);
-        if (document == null) return NotFound("Document not found.");
-
-        var answer = await _ai.AskAsync(document.Content, request.Question);
-
-        var log = new ConsultationLog
-        {
-            DocumentId = id,
-            Question = request.Question,
-            Answer = answer
-        };
-
-        await _repository.AddLogAsync(log);
-
-        return Ok(new AskDocumentResponse(request.Question, answer, log.AskedAt));
+        var response = await _documents.AskAsync(id, request, cancellationToken);
+        return Ok(response);
     }
 
-    [HttpGet("{id}/history")]
-    public async Task<IActionResult> History(Guid id)
+    /// <summary>Return the Q and A history for a document.</summary>
+    [HttpGet("{id:guid}/history")]
+    [ProducesResponseType(typeof(IReadOnlyList<AskDocumentResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<IReadOnlyList<AskDocumentResponse>>> History(
+        Guid id,
+        CancellationToken cancellationToken)
     {
-        var logs = await _repository.GetLogsAsync(id);
-        return Ok(logs.Select(l => new AskDocumentResponse(
-            l.Question, l.Answer, l.AskedAt)));
+        var history = await _documents.GetHistoryAsync(id, cancellationToken);
+        return Ok(history);
     }
 }

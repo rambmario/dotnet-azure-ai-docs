@@ -14,25 +14,30 @@ public class DocumentRepository : IDocumentRepository
         _context = context;
     }
 
-    public async Task<Document> AddAsync(Document document)
+    public async Task<Document> AddAsync(Document document, CancellationToken cancellationToken = default)
     {
         _context.Documents.Add(document);
-        await _context.SaveChangesAsync();
+        await _context.SaveChangesAsync(cancellationToken);
         return document;
     }
 
-    public async Task<Document?> GetByIdAsync(Guid id) =>
-        await _context.Documents.FindAsync(id);
+    public async Task<Document?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
+        await _context.Documents.FirstOrDefaultAsync(d => d.Id == id, cancellationToken);
 
-    public async Task<IEnumerable<ConsultationLog>> GetLogsAsync(Guid documentId) =>
+    public async Task<bool> ExistsAsync(Guid id, CancellationToken cancellationToken = default) =>
+        await _context.Documents.AnyAsync(d => d.Id == id, cancellationToken);
+
+    public async Task<IReadOnlyList<ConsultationLog>> GetLogsAsync(
+        Guid documentId,
+        CancellationToken cancellationToken = default) =>
         await _context.ConsultationLogs
             .Where(l => l.DocumentId == documentId)
             .OrderByDescending(l => l.AskedAt)
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
 
-    public async Task AddLogAsync(ConsultationLog log)
+    public async Task AddLogAsync(ConsultationLog log, CancellationToken cancellationToken = default)
     {
         _context.ConsultationLogs.Add(log);
-        await _context.SaveChangesAsync();
+        await _context.SaveChangesAsync(cancellationToken);
     }
 }

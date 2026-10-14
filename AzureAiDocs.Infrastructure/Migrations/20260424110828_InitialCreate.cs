@@ -16,8 +16,8 @@ namespace AzureAiDocs.Infrastructure.Migrations
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    FileName = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    BlobUrl = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    FileName = table.Column<string>(type: "nvarchar(260)", maxLength: 260, nullable: false),
+                    BlobUrl = table.Column<string>(type: "nvarchar(2048)", maxLength: 2048, nullable: false),
                     Content = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     UploadedAt = table.Column<DateTime>(type: "datetime2", nullable: false)
                 },
@@ -32,7 +32,7 @@ namespace AzureAiDocs.Infrastructure.Migrations
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
                     DocumentId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    Question = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    Question = table.Column<string>(type: "nvarchar(2000)", maxLength: 2000, nullable: false),
                     Answer = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     AskedAt = table.Column<DateTime>(type: "datetime2", nullable: false)
                 },
@@ -48,9 +48,19 @@ namespace AzureAiDocs.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateIndex(
+                name: "IX_ConsultationLogs_AskedAt",
+                table: "ConsultationLogs",
+                column: "AskedAt");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_ConsultationLogs_DocumentId",
                 table: "ConsultationLogs",
                 column: "DocumentId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Documents_UploadedAt",
+                table: "Documents",
+                column: "UploadedAt");
         }
 
         /// <inheritdoc />

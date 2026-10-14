@@ -1,8 +1,8 @@
 # Document Q&A API
 
-A REST API that lets you upload documents and ask natural language questions about their content, powered by **Azure OpenAI**, built with **.NET 8 Clean Architecture**, **Entity Framework Core**, and **Azure Blob Storage**.
+A REST API that lets you upload documents and ask natural language questions about their content, powered by **Azure OpenAI**, built with **.NET 10 Clean Architecture**, **Entity Framework Core**, and **Azure Blob Storage**.
 
-[![.NET](https://img.shields.io/badge/.NET-8.0-512BD4)](https://dotnet.microsoft.com)
+[![.NET](https://img.shields.io/badge/.NET-10.0-512BD4)](https://dotnet.microsoft.com)
 [![Azure OpenAI](https://img.shields.io/badge/Azure-OpenAI-0078D4)](https://azure.microsoft.com/en-us/products/ai-services/openai-service)
 [![xUnit](https://img.shields.io/badge/tests-xUnit%20%2B%20Moq-green)](https://xunit.net)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
@@ -12,42 +12,61 @@ A REST API that lets you upload documents and ask natural language questions abo
 
 ## What it does
 
-1. **Upload** a document → file is stored in Azure Blob Storage; extracted text is persisted in SQL Server.
-2. **Ask** a natural language question → Azure OpenAI generates an answer grounded in the document content.
+1. **Upload** a `.txt` or `.pdf` document → binary stored in Azure Blob Storage; extracted text persisted in SQL Server.
+2. **Ask** a natural language question → Azure OpenAI generates an answer grounded in the document content (long documents are chunked and ranked by relevance).
 3. **Browse history** → every question and answer is logged per document and fully queryable.
+
+---
+
+## Authentication
+
+This API is protected with a custom **API key** scheme (not an Azure credential):
+
+| Item | Detail |
+|------|--------|
+| Header | `X-Api-Key` |
+| Config | `ApiKeyAuth:ApiKey` in User Secrets / env / `appsettings` |
+| Development | Header **optional** — open Scalar and call endpoints immediately |
+| Staging / Production | Header **required** — missing/invalid key → `401 Unauthorized` |
+| Health | `GET /health` stays public |
+
+Implementation: `ApiKeyAuthenticationHandler` + `[Authorize]` on `DocumentsController`. Integration tests assert that a missing key returns `401` outside Development.
 
 ---
 
 ## Architecture
 
-Built following **Clean Architecture** principles — dependencies always point inward, and the inner layers (Domain, Application) have zero knowledge of Azure, SQL Server, or any external framework.
+Built following **Clean Architecture** principles — dependencies always point inward. The Application layer owns use cases; the API layer stays thin and delegates to `IDocumentService`.
 
 ```
-Client / Swagger UI
-        │  HTTP
+Client / Scalar UI
+        │  HTTP + X-Api-Key
         ▼
 ┌──────────────────────────────────────────┐
 │              API Layer                   │
-│          DocumentsController             │
+│     Auth · Middleware · Controllers      │
 │   POST /upload · POST /{id}/ask          │
 │         GET /{id}/history                │
+│              GET /health                 │
 └──────────────────┬───────────────────────┘
-                   │  depends on interfaces
+                   │  IDocumentService
                    ▼
 ┌──────────────────────────────────────────┐
 │           Application Layer              │
+│  DocumentService (use cases)             │
+│  Options · DTOs · Exceptions             │
 │  IAiService · IDocumentRepository        │
-│  IStorageService · Request/Response DTOs │
+│  IStorageService                         │
 └──────────┬───────────────────────────────┘
            │                  │
            ▼                  ▼
 ┌──────────────────┐  ┌───────────────────────────────────┐
 │   Domain Layer   │  │       Infrastructure Layer         │
 │  Document        │  │  AiService (Azure OpenAI SDK)      │
-│  ConsultationLog │  │  StorageService (Azure Blob SDK)   │
-└──────────────────┘  │  DocumentRepository (EF Core)      │
-                      │  AppDbContext + Migrations          │
-                      └──────┬────────────┬────────────────┘
+│  ConsultationLog │  │  StorageService (Blob + PdfPig)    │
+│                  │  │  DocumentRepository (EF Core)      │
+│                  │  │  AppDbContext + Migrations          │
+└──────────────────┘  └──────┬────────────┬────────────────┘
                              │            │            │
                              ▼            ▼            ▼
                         Azure OpenAI   SQL Server  Azure Blob
@@ -60,14 +79,18 @@ Client / Swagger UI
 
 | Layer          | Technology                                      |
 |----------------|-------------------------------------------------|
-| Runtime        | .NET 8                                          |
+| Runtime        | .NET 10                                         |
 | API framework  | ASP.NET Core Web API                            |
+| Auth           | API key (`X-Api-Key`)                           |
 | AI             | Azure OpenAI Service — gpt-4o-mini              |
 | File storage   | Azure Blob Storage                              |
-| Database       | SQL Server + Entity Framework Core 8            |
+| Text extract   | UTF-8 plain text + PdfPig (PDF)                 |
+| Database       | SQL Server + Entity Framework Core 10           |
 | Migrations     | EF Core Migrations (code-first)                 |
-| Testing        | xUnit + Moq — 11 unit tests                     |
-| API docs       | Swagger / OpenAPI                               |
+| Testing        | xUnit + Moq + WebApplicationFactory             |
+| API docs       | OpenAPI + Scalar UI (Development only)          |
+| Containers     | Docker + docker-compose                         |
+| CI             | GitHub Actions (build, test, coverage, CodeQL)  |
 
 ---
 
@@ -77,44 +100,30 @@ Client / Swagger UI
 AzureAiDocs.slnx
 Nuget.Config
 ├── AzureAiDocs.Api/
+│   ├── Auth/
 │   ├── Controllers/
-│   │   └── DocumentsController.cs
-│   ├── Properties/
-│   │   └── launchSettings.json
-│   ├── appsettings.json
-│   ├── appsettings.Development.json
+│   ├── Middleware/
+│   ├── OpenApi/
 │   ├── Program.cs
-│   └── AzureAiDocs.Api.csproj
+│   └── appsettings*.json
 ├── AzureAiDocs.Application/
+│   ├── DTOs/
+│   ├── Exceptions/
 │   ├── Interfaces/
-│   │   ├── IAiService.cs
-│   │   ├── IDocumentRepository.cs
-│   │   ├── IStorageService.cs
-│   │   ├── AskDocumentRequest.cs
-│   │   ├── AskDocumentResponse.cs
-│   │   └── UploadDocumentResponse.cs
-│   └── AzureAiDocs.Application.csproj
+│   ├── Options/
+│   ├── Services/
+│   └── DependencyInjection.cs
 ├── AzureAiDocs.Domain/
-│   ├── Entities/
-│   │   ├── Document.cs
-│   │   └── ConsultationLog.cs
-│   └── AzureAiDocs.Domain.csproj
+│   └── Entities/
 ├── AzureAiDocs.Infrastructure/
 │   ├── Data/
-│   │   └── AppDbContext.cs
 │   ├── Migrations/
-│   │   ├── 20260424110828_InitialCreate.cs
-│   │   ├── 20260424110828_InitialCreate.Designer.cs
-│   │   └── AppDbContextModelSnapshot.cs
 │   ├── Repositories/
-│   │   └── DocumentRepository.cs
 │   ├── Services/
-│   │   └── StorageService.cs
-│   ├── AiService.cs
-│   └── AzureAiDocs.Infrastructure.csproj
-└── AzureAiDocs.Tests/
-    ├── DocumentsControllerTests.cs
-    └── AzureAiDocs.Tests.csproj
+│   └── DependencyInjection.cs
+├── AzureAiDocs.Tests/
+├── Dockerfile
+└── docker-compose.yml
 ```
 
 ---
@@ -123,31 +132,29 @@ Nuget.Config
 
 ### Prerequisites
 
-- [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
-- SQL Server (local instance or Azure SQL)
+- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
+- SQL Server (local instance, LocalDB, or Azure SQL)
 - Azure OpenAI resource with a `gpt-4o-mini` deployment
-- Azure Storage account with a container named `documents`
+- Azure Storage account with a container named `documents` (created automatically if missing)
 
 ### Configuration
 
-Add the following to `appsettings.json` (or use [User Secrets](https://learn.microsoft.com/en-us/aspnet/core/security/app-secrets) for local development — never commit real credentials):
+Prefer [User Secrets](https://learn.microsoft.com/en-us/aspnet/core/security/app-secrets) for local development — never commit real credentials.
 
-```json
-{
-  "AzureOpenAI": {
-    "Endpoint": "https://YOUR-RESOURCE.openai.azure.com/",
-    "ApiKey": "YOUR-API-KEY",
-    "DeploymentName": "gpt-4o-mini"
-  },
-  "AzureStorage": {
-    "ConnectionString": "YOUR-BLOB-CONNECTION-STRING",
-    "ContainerName": "documents"
-  },
-  "ConnectionStrings": {
-    "DefaultConnection": "Server=localhost;Database=AzureAiDocs;Trusted_Connection=True;"
-  }
-}
+```bash
+dotnet user-secrets init --project AzureAiDocs.Api
+dotnet user-secrets set "AzureOpenAI:Endpoint" "https://YOUR-RESOURCE.openai.azure.com/" --project AzureAiDocs.Api
+dotnet user-secrets set "AzureOpenAI:ApiKey" "YOUR-API-KEY" --project AzureAiDocs.Api
+dotnet user-secrets set "AzureOpenAI:DeploymentName" "gpt-4o-mini" --project AzureAiDocs.Api
+dotnet user-secrets set "AzureStorage:ConnectionString" "YOUR-BLOB-CONNECTION-STRING" --project AzureAiDocs.Api
+dotnet user-secrets set "AzureStorage:ContainerName" "documents" --project AzureAiDocs.Api
+dotnet user-secrets set "ApiKeyAuth:ApiKey" "your-local-api-key" --project AzureAiDocs.Api
+dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Server=localhost;Database=AzureAiDocs;Trusted_Connection=True;TrustServerCertificate=True;" --project AzureAiDocs.Api
 ```
+
+Alternatively, copy `AzureAiDocs.Api/appsettings.template.json` to `appsettings.Development.json` (gitignored) and fill in the values.
+
+Supported upload types: **`.txt`** and **`.pdf`** (default max size 5 MB, configurable via `DocumentUpload`).
 
 ### Run
 
@@ -159,11 +166,31 @@ dotnet ef database update --project AzureAiDocs.Infrastructure --startup-project
 dotnet run --project AzureAiDocs.Api
 ```
 
-Swagger UI will be available at the URL shown in the console (configured in `launchSettings.json`).
+Open [http://localhost:5157/scalar](http://localhost:5157/scalar) and try **Upload → Ask → History**. No API key needed in Development.
+
+### Docker
+
+```bash
+export AZURE_OPENAI_ENDPOINT="https://YOUR-RESOURCE.openai.azure.com/"
+export AZURE_OPENAI_API_KEY="YOUR-API-KEY"
+export AZURE_STORAGE_CONNECTION_STRING="YOUR-BLOB-CONNECTION-STRING"
+
+docker compose up --build
+```
+
+API: `http://localhost:8080` · Health: `GET /health`
+
+After the containers are up, apply migrations against the compose SQL instance (or add an init job):
+
+```bash
+dotnet ef database update --project AzureAiDocs.Infrastructure --startup-project AzureAiDocs.Api
+```
 
 ---
 
 ## API endpoints
+
+See [Authentication](#authentication) for when `X-Api-Key` is required.
 
 ### Upload a document
 
@@ -174,7 +201,7 @@ Content-Type: multipart/form-data
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `file` | `IFormFile` | The document to upload |
+| `file` | `IFormFile` | `.txt` or `.pdf` document |
 
 **Response `200 OK`:**
 ```json
@@ -184,8 +211,6 @@ Content-Type: multipart/form-data
   "uploadedAt": "2026-04-27T10:00:00Z"
 }
 ```
-
----
 
 ### Ask a question
 
@@ -200,18 +225,7 @@ Content-Type: application/json
 }
 ```
 
-**Response `200 OK`:**
-```json
-{
-  "question": "What are the main conclusions of this document?",
-  "answer": "The main conclusions are...",
-  "askedAt": "2026-04-27T10:05:00Z"
-}
-```
-
 **Response `404 Not Found`:** document ID does not exist.
-
----
 
 ### Get Q&A history
 
@@ -219,15 +233,12 @@ Content-Type: application/json
 GET /api/documents/{id}/history
 ```
 
-**Response `200 OK`:**
-```json
-[
-  {
-    "question": "What is this document about?",
-    "answer": "This document covers...",
-    "askedAt": "2026-04-27T10:05:00Z"
-  }
-]
+**Response `404 Not Found`:** document ID does not exist.
+
+### Health
+
+```http
+GET /health
 ```
 
 ---
@@ -237,37 +248,37 @@ GET /api/documents/{id}/history
 **Upload flow:**
 ```
 IFormFile
-  → IStorageService      uploads binary to Azure Blob, returns (blobUrl, textContent)
-  → IDocumentRepository  persists Document entity (FileName, BlobUrl, Content) via EF Core
+  → DocumentService       validates type/size
+  → IStorageService       uploads binary to Blob, extracts .txt/.pdf text
+  → IDocumentRepository   persists Document entity via EF Core
   → returns UploadDocumentResponse
 ```
 
 **Ask flow:**
 ```
 DocumentId + Question
-  → IDocumentRepository  fetches Document.Content from SQL Server
-  → IAiService           sends (content, question) to Azure OpenAI → returns answer
-  → IDocumentRepository  persists ConsultationLog (DocumentId, Question, Answer)
+  → DocumentService       loads document (404 if missing)
+  → IAiService            ranks chunks if needed, calls Azure OpenAI
+  → IDocumentRepository   persists ConsultationLog
   → returns AskDocumentResponse
 ```
-
-The Application layer orchestrates the flow by depending exclusively on interfaces — `AiService`, `StorageService`, and `DocumentRepository` are injected at runtime by the DI container, keeping business logic fully decoupled from infrastructure concerns.
 
 ---
 
 ## Running tests
 
 ```bash
-dotnet test AzureAiDocs.Tests
+dotnet test AzureAiDocs.slnx
 ```
 
-11 unit tests covering all three endpoints. All external dependencies (`IAiService`, `IDocumentRepository`, `IStorageService`) are mocked with Moq — no Azure account or database required to run the test suite.
+Unit tests cover the controller, `DocumentService` use cases, and content-selection logic. Integration tests use `WebApplicationFactory` for auth and health checks. External Azure dependencies are mocked in unit tests.
 
-| Endpoint  | Scenarios covered |
-|-----------|-------------------|
-| `Upload`  | Valid file → 200, null file → 400, empty file → 400, storage and repository calls verified |
-| `Ask`     | Document found → 200, document not found → 404, log persisted correctly, document content passed to AI |
-| `History` | All logs returned, empty list, correct DTO mapping |
+| Area | Scenarios covered |
+|------|-------------------|
+| Controller | Upload/Ask/History delegation, null file → 400 |
+| DocumentService | Valid upload, extension/size validation, ask + log, history 404 |
+| AiService | Short-doc passthrough, long-doc relevance selection |
+| Integration | Missing API key → 401, `/health` reachable |
 
 ---
 

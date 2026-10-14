@@ -20,6 +20,10 @@ publish/
 # Ignore appsettings files
 **/appsettings.Development.json
 
+# Test / coverage output
+**/TestResults/
+**/coverage/
+
 # Visual Studio
 .vs/
 *.rsuser
